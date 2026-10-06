@@ -46,7 +46,7 @@ node scripts/serve.mjs
 4. 等待 Actions 成功，再用 Bigme 浏览器打开 Pages 返回的网址。
 5. 等到页面提示离线内容已下载，再断网测试。可在支持的浏览器中添加到桌面。
 
-仓库：<https://github.com/BetterCI/knowledge-garden>，目前为私有，尚未上线。GitHub 已返回“当前套餐不支持该仓库的 Pages”；自动检查仍会运行，部署会跳过。改为公开仓库后可启用 Pages；若升级到支持私有仓库 Pages 的套餐，可设置 Actions 变量 `ENABLE_PRIVATE_PAGES=true`。家庭学习记录不属于网站发布内容。
+仓库：<https://github.com/BetterCI/knowledge-garden>。用户于 2026-10-06 同意公开仓库并发布，GitHub Pages 已启用，网站地址为 <https://betterci.github.io/knowledge-garden/>。推送 main 后自动检查并发布，等待 Actions 成功后访问。家庭学习记录不属于网站发布内容。
 
 ## 日常使用与 Codex 更新
 

@@ -2,8 +2,8 @@
 import {spawnSync} from 'node:child_process';
 const action=process.argv[2]||'status';
 const owner=process.argv[3],name=process.argv[4];
-if(!['status','create','pages','runs','upload-initial'].includes(action)||!owner||!name||!/^[a-zA-Z0-9_.-]+$/.test(owner)||!/^[a-zA-Z0-9_.-]+$/.test(name)){
-  console.error('用法：node scripts/github-repository.mjs <status|create|pages|runs|upload-initial> <owner> <name>');process.exit(1);
+if(!['status','create','pages','runs','make-public','deploy','upload-initial'].includes(action)||!owner||!name||!/^[a-zA-Z0-9_.-]+$/.test(owner)||!/^[a-zA-Z0-9_.-]+$/.test(name)){
+  console.error('用法：node scripts/github-repository.mjs <status|create|pages|runs|make-public|deploy|upload-initial> <owner> <name>');process.exit(1);
 }
 const credential=spawnSync('git',['credential','fill'],{input:`protocol=https\nhost=github.com\nusername=${owner}\n\n`,encoding:'utf8',env:{...process.env,GIT_TERMINAL_PROMPT:'0',GCM_INTERACTIVE:'never'}});
 if(credential.status!==0){console.error('无法取得现有 GitHub 登录凭据，请先登录 Git Credential Manager。');process.exit(1);}
@@ -22,7 +22,15 @@ try{
     repo=await request('/user/repos','POST',{name,private:true,description:'A quiet, offline-capable family knowledge garden for e-ink devices.',auto_init:false});
   }
   if(![200,201].includes(repo.status))throw new Error(`仓库操作失败（${repo.status}）：${repo.data.message}`);
-  if(action==='upload-initial'){
+  if(action==='make-public'){
+    const result=await request(`/repos/${owner}/${name}`,'PATCH',{private:false});
+    if(result.status!==200||result.data.private!==false)throw new Error(`公开仓库失败（${result.status}）：${result.data.message}`);
+    console.log(JSON.stringify({repository:result.data.html_url,private:result.data.private}));
+  }else if(action==='deploy'){
+    const result=await request(`/repos/${owner}/${name}/actions/workflows/pages.yml/dispatches`,'POST',{ref:'main'});
+    if(result.status!==204)throw new Error(`触发发布失败（${result.status}）：${result.data.message}`);
+    console.log(JSON.stringify({repository:repo.data.html_url,dispatchStatus:result.status}));
+  }else if(action==='upload-initial'){
     const git=(args,binary=false,input)=>{const result=spawnSync('git',args,{input,encoding:binary?undefined:'utf8',maxBuffer:10*1024*1024});if(result.status!==0)throw new Error('读取或写入本地 Git 提交失败');return result.stdout;};
     const head=git(['rev-parse','HEAD']).trim();
     let ref=await request(`/repos/${owner}/${name}/git/ref/heads/main`);
