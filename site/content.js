@@ -3,7 +3,7 @@
 const choice = (prompt, options, answer, hint, solution, art = null) => ({ type: 'choice', prompt, options, answer, hint, solution, art });
 const number = (prompt, answer, hint, solution, art = null) => ({ type: 'number', prompt, answer: String(answer), hint, solution, art });
 export const content = {
-  version: '2026.10.06.2',
+  version: '2026.10.06.5',
   publishedAt: '2026-10-06',
   students: {
     cc: { name: '橙橙', stage: '初一 · 概念与联系', intro: '从一个为什么，走向下一扇门。', startNode: 'cc-number-line' },

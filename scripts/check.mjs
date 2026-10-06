@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { content } from '../site/content.js';
 import { validateContent } from '../site/core.js';
 validateContent(content);
-for (const file of ['site/app.js','site/content.js','site/core.js','site/storage.js','site/sw.js','scripts/serve.mjs','scripts/analyze-records.mjs','scripts/github-repository.mjs','scripts/browser-check.mjs']) {
+for (const file of ['site/app.js','site/screen-layout.js','site/content.js','site/core.js','site/storage.js','site/sw.js','scripts/serve.mjs','scripts/analyze-records.mjs','scripts/github-repository.mjs','scripts/browser-check.mjs','scripts/screen-check.mjs']) {
   const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});
   if(result.status!==0)throw new Error(result.stderr);
 }

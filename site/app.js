@@ -1,11 +1,13 @@
 import { content } from './content.js';
 import { STUDENTS, DIFFICULTIES, INTERESTS, dayKey, isCorrect, appendAttempt, nodeProgress, isEligible, chooseNode, makeLesson, addLesson, validateContent, validateBackup, mergeBackup, makeBackup } from './core.js';
 import { openStore, readState, mutateState } from './storage.js';
+import { mountScreens } from './screen-layout.js';
 
 const app = document.querySelector('#app');
 let state, busy = false, generation = 0, registration, pendingWorker;
 let selection = '', retrying = false, routeKey = '', parentStudent = 'cc', parentPage = 0, discoveryPage = 0;
 let difficulty = '', interest = '';
+let screens, screenPage=0, hintView=false;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now = () => new Date().toISOString();
 const uid = () => globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -17,7 +19,7 @@ const child = s => content.students[s];
 const studentBreadcrumb = (s, title) => `<nav class="breadcrumb" aria-label="当前位置">${link('花园','')}<span>／</span>${link(child(s).name,s)}${title ? `<span>／</span><span>${esc(title)}</span>` : ''}</nav>`;
 function notify(message, error = false) {
   const target = document.querySelector('#notice');
-  target.textContent = message; target.classList.toggle('error',error); target.hidden = false;
+  target.innerHTML = `<div class="notice-message"><span>${esc(message)}</span>${button('知道了','dismiss-notice','plain')}</div>`; target.classList.toggle('error',error); target.hidden = false;
 }
 function currentRoute() { return (location.hash || '#/').replace(/^#\/?/,'').split('/').map(s => { try { return decodeURIComponent(s); } catch { return ''; } }); }
 function currentLesson(s) { return state.lessons.find(l => l.student === s && l.day === dayKey()); }
@@ -43,7 +45,7 @@ function portrait(s) {
   return `<svg class="portrait" viewBox="0 0 240 190" role="img" aria-label="${child(s).name}的手绘头像"><path d="M28 171c25-7 150-7 183 0M28 144v-26m0 17c-13 0-18-13-18-13 16 0 18 13 18 13m0-9c0-16 18-20 18-20 0 15-8 21-18 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>${hair}<ellipse cx="120" cy="87" rx="46" ry="48" fill="#f8f8f5" stroke="currentColor" stroke-width="2.5"/><path d="M85 73c12-4 30-15 34-26 9 14 26 23 37 25" fill="none" stroke="currentColor" stroke-width="4"/><path d="M${s==='cc'?'99 86v5m42-5v5':'95 91q7-10 14 0m24 0q7-10 14 0'}M108 109q12 11 24 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M75 166c0-42 22-48 45-48s45 6 45 48" fill="#e5e5dd" stroke="currentColor" stroke-width="2.5"/><path d="M103 122l17 20 17-20M120 142v24" fill="none" stroke="currentColor" stroke-width="2"/><path d="M63 165l53-8 13 10 34-8 30 6v13H63Z" fill="#fff" stroke="currentColor" stroke-width="2"/><path d="M130 167v10M75 170l34-7M144 167l34 3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M202 32v18m-9-9h18" stroke="currentColor" stroke-width="2"/></svg>`;
 }
 function home() {
-  return `<section class="hero"><p class="eyebrow">橙橙与甜甜的成长知识图</p><h1>知识图与趣味数学</h1><p>从一个小问题开始，走进自己的知识花园。</p></section><section class="children" aria-label="选择孩子">${STUDENTS.map(s=>`<a class="child-card" href="#/${s}">${portrait(s)}<h2>${child(s).name}</h2><p>${child(s).intro}</p><span class="button">进入花园 <span aria-hidden="true">→</span></span></a>`).join('')}</section><div class="home-note"><div class="flower-divider" aria-hidden="true">✳</div><p>不用赶路，今天发现一点就好。</p></div>`;
+  return `<section class="hero"><p class="eyebrow">橙橙与甜甜的成长知识图</p><h1>知识图与趣味数学</h1><p>从一个小问题开始，走进自己的知识花园。</p></section><section class="children" aria-label="选择孩子">${STUDENTS.map(s=>`<a class="child-card" href="#/${s}">${portrait(s)}<h2>${child(s).name}</h2><p>${child(s).intro}</p><span class="button">进入花园 <span aria-hidden="true">→</span></span></a>`).join('')}</section>`;
 }
 function studentHome(s) {
   const lesson = currentLesson(s), candidate = lesson ? {node:lesson.node,reason:lesson.reason} : chooseNode(content,state,s);
@@ -54,7 +56,7 @@ function mapPage(s) {
   return `${studentBreadcrumb(s,'知识地图')}<h1>一张慢慢长大的地图</h1><p class="muted">先看到身边的联系，再走向下一扇门。</p><div class="map-legend"><span>● 已有掌握证据</span><span>◉ 正在探索</span><span>○ 尚未探索</span><span>◇ 前置知识待练习</span></div><div class="map-list">${content.nodes.filter(n=>n.student===s).map(n=>{const p=nodeProgress(state,s,n.id),status=p.status==='unseen'&&!isEligible(n,state)?'locked':p.status;return `<a class="node-card" href="#/${s}/card/${n.id}"><div class="row spread"><h3><span class="symbol" aria-hidden="true">${icon(status)}</span>${esc(n.title)}</h3><span class="status-label">${statusName(status)}</span></div><p>${esc(n.summary)}</p>${n.prerequisites.length?`<p>前置联系：${n.prerequisites.map(id=>esc(content.nodes.find(x=>x.id===id).title)).join('、')}</p>`:''}${p.count?`<p>已记录 ${p.count} 次作答 · ${p.independent} 道题有独立答对证据</p>`:''}</a>`;}).join('')}</div><p class="page-note subsection">看过卡片不等于掌握。这里根据作答、提示和不同日期的练习证据标记状态。</p>`;
 }
 function cardBody(node,s) {
-  return `<p class="eyebrow">${esc(node.domain)}</p><h1>${esc(node.title)}</h1><section class="panel"><h2>一句话理解</h2><p>${esc(node.summary)}</p>${art(node.art)}<h3>看一个例子</h3><p>${esc(node.example)}</p></section><section class="panel"><h2>你有没有想过？</h2><p>${esc(node.curiosity)}</p><p class="small">可以先想一想，也可以说给爸爸听。不需要马上答出来。</p></section>${node.related.length?`<section class="panel"><h2>下一扇门</h2><div class="connections">${node.related.map(id=>{const related=content.nodes.find(n=>n.id===id&&n.student===s);return related?link(esc(related.title),`${s}/card/${id}`):'';}).join('')}</div></section>`:''}`;
+  return `<p class="eyebrow">${esc(node.domain)}</p><h1>${esc(node.title)}</h1><section class="panel" data-screen><h2>一句话理解</h2><p>${esc(node.summary)}</p>${art(node.art)}</section><section class="panel" data-screen><h2>看一个例子</h2><p>${esc(node.example)}</p></section><section class="panel" data-screen><h2>你有没有想过？</h2><p>${esc(node.curiosity)}</p><p class="small">可以先想一想，也可以说给爸爸听。不需要马上答出来。</p></section>${node.related.length?`<section class="panel" data-screen><h2>下一扇门</h2><div class="connections">${node.related.map(id=>{const related=content.nodes.find(n=>n.id===id&&n.student===s);return related?link(esc(related.title),`${s}/card/${id}`):'';}).join('')}</div></section>`:''}`;
 }
 function cardPage(s,id) {
   const node=content.nodes.find(n=>n.id===id&&n.student===s);
@@ -69,14 +71,15 @@ async function lessonPage(s) {
   let lesson=currentLesson(s);
   if (!lesson) { state=await mutateState(current=>addLesson(current,makeLesson(content,current,s))); lesson=currentLesson(s); }
   if (lesson.completedAt) return completionPage(s,lesson);
-  if (!lesson.readAt) return `${studentBreadcrumb(s,'今日探索')}<p class="small">${esc(lesson.reason)}</p>${cardBody(lesson.node,s)}${button('我看过了，试试三个问题','begin-questions')}<p class="page-note subsection">看不懂也没关系，可以先请爸爸一起看。甜甜的题目可以由家长读题。</p>`;
+  if (!lesson.readAt) return `${studentBreadcrumb(s,'今日探索')}${cardBody(lesson.node,s)}${button('我看过了，试试三个问题','begin-questions')}`;
   const index=lesson.node.questions.findIndex(q=>!lesson.responses[q.id]?.finalized);
   if (index<0) return feedbackPage(s,lesson);
   const q=lesson.node.questions[index], response=lesson.responses[q.id];
   const waitingRetry=response&&!response.finalized&&!retrying;
   const hintUsed=Boolean(lesson.hints?.[q.id]||response?.hintUsed);
+  if(hintView)return `${studentBreadcrumb(s,'一点提示')}<p class="eyebrow">${esc(lesson.node.title)}</p><h1>换个角度想一想</h1><section class="panel"><p>${esc(q.prompt)}</p><div class="explanation"><p>${esc(q.hint)}</p></div>${button('回到问题','close-hint')}</section>`;
   const selected=selection;
-  return `${studentBreadcrumb(s,'今日探索')}<p class="eyebrow">${esc(lesson.node.title)} · 问题 ${index+1} / ${lesson.node.questions.length}</p><div class="progress-track" aria-label="${index}题完成，共${lesson.node.questions.length}题">${lesson.node.questions.map((_,i)=>`<span class="progress-step ${i<index?'done':''}"></span>`).join('')}</div><section class="panel"><h1 class="question-title">${esc(q.prompt)}</h1>${art(q.art)}${waitingRetry?`<div class="explanation"><h3>再想一想</h3><p>你选了：${esc(response.answer)}</p><p>${esc(q.hint)}</p></div><div class="row">${button('再试一次','retry')}${button('看解释，继续','skip','secondary')}</div>`:q.type==='choice'?`<div class="options" role="group" aria-label="选择答案">${q.options.map((option,i)=>`<button class="option ${selected===option?'selected':''}" data-action="select-answer" data-value="${esc(option)}" aria-pressed="${selected===option}"><span class="option-letter">${String.fromCharCode(65+i)}</span><span>${esc(option)}</span></button>`).join('')}</div>`:`<div class="numeric-answer"><label for="answer">我的答案</label><input id="answer" type="text" inputmode="decimal" autocomplete="off" maxlength="12" value="${esc(selected)}" aria-label="数字答案"></div><div class="keypad" aria-label="数字键盘">${['1','2','3','4','5','6','7','8','9','−','0','⌫'].map(key=>`<button data-action="key" data-value="${key}" aria-label="${key==='⌫'?'删除一位':key==='−'?'负号':key}">${key}</button>`).join('')}</div>`}${!waitingRetry?`${hintUsed?`<div class="explanation"><p>${esc(q.hint)}</p></div>`:''}<div class="row">${button('确认答案','submit-answer','primary',selected.trim()?'':'disabled')}${button('给我一点提示','hint','secondary',hintUsed?'disabled':'')}</div>`:''}</section><p class="page-note">确认前可以修改答案。提示和重试都会被记录，用来安排后续学习。</p>`;
+  return `${studentBreadcrumb(s,'今日探索')}<p class="eyebrow">${esc(lesson.node.title)} · 问题 ${index+1} / ${lesson.node.questions.length}</p><div class="progress-track" aria-label="${index}题完成，共${lesson.node.questions.length}题">${lesson.node.questions.map((_,i)=>`<span class="progress-step ${i<index?'done':''}"></span>`).join('')}</div><section class="panel question-panel"><h1 class="question-title">${esc(q.prompt)}</h1>${art(q.art)}${waitingRetry?`<div class="explanation"><h3>再想一想</h3><p>你选了：${esc(response.answer)}</p><p>${esc(q.hint)}</p></div><div class="row">${button('再试一次','retry')}${button('看解释，继续','skip','secondary')}</div>`:q.type==='choice'?`<div class="options" role="group" aria-label="选择答案">${q.options.map((option,i)=>`<button class="option ${selected===option?'selected':''}" data-action="select-answer" data-value="${esc(option)}" aria-pressed="${selected===option}"><span class="option-letter">${String.fromCharCode(65+i)}</span><span>${esc(option)}</span></button>`).join('')}</div>`:`<div class="numeric-answer"><label for="answer">我的答案</label><input id="answer" type="text" inputmode="none" autocomplete="off" maxlength="12" value="${esc(selected)}" aria-label="数字答案"></div><div class="keypad" aria-label="数字键盘">${['1','2','3','4','5','6','7','8','9','−','0','⌫'].map(key=>`<button data-action="key" data-value="${key}" aria-label="${key==='⌫'?'删除一位':key==='−'?'负号':key}">${key}</button>`).join('')}</div>`}${!waitingRetry?`<div class="row">${button('确认答案','submit-answer','primary',selected.trim()?'':'disabled')}${button(hintUsed?'再看提示':'给我一点提示','hint','secondary')}</div>`:''}</section>`;
 }
 function answerReview(s,lesson,q,response) {
   return `${studentBreadcrumb(s,'今日探索')}<p class="eyebrow">${esc(lesson.node.title)}</p><section class="panel"><h1 class="question-title">${response.correct?'这个问题想明白了':'一起看一看这个想法'}</h1><p>${esc(q.prompt)}</p><p>你的答案：${esc(response.answer)}</p><div class="explanation"><h3>为什么？</h3><p>${esc(q.solution)}</p></div>${button('继续','next-question')}</section>`;
@@ -112,7 +115,7 @@ function notFound() { return `<h1>这条小路还没开放</h1><p>回到花园�
 async function render(focus = false) {
   const token=++generation, parts=currentRoute(), key=parts.join('/');
   if (key!==routeKey) {
-    selection='';retrying=false;review=null;difficulty='';interest='';parentPage=0;discoveryPage=0;routeKey=key;
+    selection='';retrying=false;review=null;difficulty='';interest='';parentPage=0;discoveryPage=0;routeKey=key;screenPage=0;hintView=false;
     if (!pendingWorker) document.querySelector('#notice').hidden = true;
   }
   state=await readState();
@@ -132,6 +135,10 @@ async function render(focus = false) {
   } else html=notFound();
   if(token!==generation)return;
   app.innerHTML=html;
+  const progress=app.querySelector('.progress-track'),questionPanel=app.querySelector('.question-panel');
+  if(progress&&questionPanel)questionPanel.prepend(progress);
+  app.dataset.view=!parts[0]?'home':parts[0]==='parent'?'parent':parts[1]||'student';
+  screens=mountScreens(app,screenPage);screenPage=screens.page;
   document.title=STUDENTS.includes(parts[0])?`${child(parts[0]).name} · 知识花园`:'橙橙与甜甜 · 知识花园';
   if(focus){app.focus({preventScroll:true});window.scrollTo(0,0);}
 }
@@ -157,11 +164,14 @@ async function finalize(s,q,response) {
     const next=appendAttempt(current,attempt);
     return {...next,lessons:next.lessons.map(l=>l.id===lesson.id?{...l,responses:{...l.responses,[q.id]:done}}:l)};
   });
-  review={q,response}; selection='';retrying=false;
+  review={q,response}; selection='';retrying=false;screenPage=0;
 }
 async function perform(action,target) {
   const [s]=currentRoute();
   switch(action) {
+    case 'screen-prev':screens.show(screens.page-1);screenPage=screens.page;return;
+    case 'screen-next':screens.show(screens.page+1);screenPage=screens.page;return;
+    case 'close-hint':hintView=false;screenPage=0;break;
     case 'select-answer': selection=target.dataset.value;break;
     case 'key': {
       const input=document.querySelector('#answer'); if(input)selection=input.value;
@@ -170,11 +180,13 @@ async function perform(action,target) {
       break;
     }
     case 'begin-questions': {
+      screenPage=0;
       await updateLesson(s,l=>{const at=now();return {...l,startedAt:l.startedAt||at,readAt:at,questionTimes:{...l.questionTimes,[l.node.questions[0].id]:at}};}); break;
     }
-    case 'hint': { const {q}=activeQuestion(s); await updateLesson(s,l=>({...l,hints:{...l.hints,[q.id]:true}})); break; }
+    case 'hint': { const {q}=activeQuestion(s); await updateLesson(s,l=>({...l,hints:{...l.hints,[q.id]:true}}));hintView=true;screenPage=0;break; }
     case 'retry': selection='';retrying=true;break;
     case 'submit-answer': {
+      screenPage=0;
       const {lesson,q}=activeQuestion(s), answer=q.type==='number'?document.querySelector('#answer').value.trim():selection;
       if(!answer.trim())throw new Error('先选一个答案或填一个数字吧。');
       if(q.type==='number'&&!/^[+\-−]?\d+(\.\d+)?$/.test(answer))throw new Error('这里填一个数字就好。');
@@ -186,6 +198,7 @@ async function perform(action,target) {
     }
     case 'skip': { const {lesson,q}=activeQuestion(s);await finalize(s,q,{...lesson.responses[q.id],hintUsed:true});break; }
     case 'next-question': {
+      screenPage=0;
       review=null;
       const {lesson}= {lesson:currentLesson(s)}, q=lesson.node.questions.find(q=>!lesson.responses[q.id]?.finalized);
       if(q)await updateLesson(s,l=>({...l,questionTimes:{...l.questionTimes,[q.id]:l.questionTimes?.[q.id]||now()}}));
@@ -194,6 +207,7 @@ async function perform(action,target) {
     case 'difficulty':difficulty=target.dataset.value;break;
     case 'interest':interest=target.dataset.value;break;
     case 'finish':
+      screenPage=0;
       if(!DIFFICULTIES.includes(difficulty)||!INTERESTS.includes(interest))throw new Error('请分别选择难度和兴趣感受。');
       await updateLesson(s,l=>{if(!l.node.questions.every(q=>l.responses[q.id]?.finalized))throw new Error('先完成今天的三个问题。');return {...l,feedback:{difficulty,interest},completedAt:l.completedAt||now()};});break;
     case 'parent-student':parentStudent=target.dataset.value;parentPage=0;break;
@@ -209,7 +223,7 @@ async function perform(action,target) {
     }
     case 'check-update':
       if(!registration){notify('离线缓存尚未启用。请通过 HTTPS 或本机预览网址打开，并检查浏览器支持情况。');return;}
-      await registration.update();notify(registration.waiting?'新版已下载，点击页面上方的“切换新版”。':'已发起更新检查；发现新版后会提示切换。');return;
+      await registration.update();if(registration.waiting)showUpdate(registration.waiting);else notify('已发起更新检查；发现新版后会提示切换。');return;
     case 'activate-update':
       if(pendingWorker){pendingWorker.postMessage({type:'ACTIVATE'});notify('正在切换到已下载的新版本，学习记录会保留。');}return;
     default:return;
@@ -218,8 +232,8 @@ async function perform(action,target) {
 }
 app.addEventListener('click',async event=>{
   const target=event.target.closest('button[data-action]');if(!target||busy)return;
-  busy=true;
-  try{await perform(target.dataset.action,target);}catch(error){notify(error.message,true);}finally{busy=false;}
+  busy=true;app.setAttribute('aria-busy','true');
+  try{await perform(target.dataset.action,target);}catch(error){notify(error.message,true);}finally{busy=false;app.removeAttribute('aria-busy');}
 });
 app.addEventListener('input',event=>{
   if(event.target.id==='answer'){selection=event.target.value;const submit=app.querySelector('[data-action="submit-answer"]');if(submit)submit.disabled=!selection.trim();}
@@ -248,13 +262,22 @@ app.addEventListener('change',async event=>{
   }catch(error){notify(error instanceof SyntaxError?'这个文件不是有效的 JSON 记录。':error.message,true);}finally{busy=false;}
 });
 window.addEventListener('hashchange',()=>render(true).catch(error=>notify(error.message,true)));
+let resizeTimer;
+window.addEventListener('resize',()=>{
+  clearTimeout(resizeTimer);resizeTimer=setTimeout(async()=>{
+    if(!state||busy)return;
+    const values=[...app.querySelectorAll('input[id],textarea[id],select[id]')].filter(el=>el.type!=='file').map(el=>[el.id,el.value]);
+    try{await render();for(const [id,value]of values){const el=document.getElementById(id);if(el)el.value=value;}}catch(error){notify(error.message,true);}
+  },100);
+});
 window.addEventListener('online',updateConnection);window.addEventListener('offline',updateConnection);
 function updateConnection(){const el=document.querySelector('#connection');el.textContent=navigator.onLine?'记录保存在本机':'离线 · 本机记录';el.classList.toggle('connection-offline',!navigator.onLine);}
 function showUpdate(worker){pendingWorker=worker;const el=document.querySelector('#notice');el.classList.remove('error');el.hidden=false;el.innerHTML=`<div class="update-banner"><span>新版内容已下载。切换版本会保留学习记录与当天任务。</span>${button('切换新版','activate-update','secondary')}</div>`;}
-document.querySelector('#notice').addEventListener('click',event=>{if(event.target.closest('[data-action="activate-update"]'))perform('activate-update',event.target).catch(error=>notify(error.message,true));});
+document.querySelector('#notice').addEventListener('click',event=>{if(event.target.closest('[data-action="dismiss-notice"]'))document.querySelector('#notice').hidden=true;else if(event.target.closest('[data-action="activate-update"]'))perform('activate-update',event.target).catch(error=>notify(error.message,true));});
 async function setupOffline(){
   if(!('serviceWorker' in navigator)||!window.isSecureContext){notify('当前浏览器没有启用离线缓存。在线学习仍可使用，本机记录照常保存。');return;}
-  let switching=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!switching){switching=true;location.reload();}});
+  const hadController=Boolean(navigator.serviceWorker.controller);
+  let switching=false;navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!switching&&(hadController||pendingWorker)){switching=true;location.reload();}});
   registration=await navigator.serviceWorker.register('./sw.js',{scope:'./'});
   if(registration.waiting)showUpdate(registration.waiting);
   registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'){if(navigator.serviceWorker.controller)showUpdate(worker);else notify('离线内容已下载。在这个浏览器中可离线打开知识花园。');}});});
